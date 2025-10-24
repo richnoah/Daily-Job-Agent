@@ -14,7 +14,7 @@ DB_PATH = "jobs.db"
 
 QUERY = (
     '(site:jobs.lever.co OR site:boards.greenhouse.io OR site:workable.com '
-    'OR site:careers.icims.com OR site:wd1.myworkdayjobs.com) '
+    'OR site:careers.icims.com OR site:wd1.myworkdayjobs.com OR site:recruitee.com) '
     '("senior project manager" OR "program manager" OR "technical project manager") '
     '("remote" OR "Remote - US" OR "Remote USA" OR "US-based" OR "United States" OR "U.S.") '
     '("software" OR "technology" OR "digital agency" OR "creative agency" OR "marketing technology" OR "product development" OR "SaaS") '
@@ -64,7 +64,7 @@ def is_job_post(url):
     # Light heuristic to reduce non-job pages
     return any(
         part in url.lower()
-        for part in ["jobs.lever.co", "boards.greenhouse.io", "workable.com", "careers.icims.com", "myworkdayjobs.com"]
+        for part in ["jobs.lever.co", "boards.greenhouse.io", "workable.com", "careers.icims.com", "myworkdayjobs.com", "recruitee.com"]
     )
 
 def filter_new(items):
