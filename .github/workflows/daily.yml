@@ -2,26 +2,57 @@ name: daily-job-scout
 
 on:
   schedule:
-    - cron: "30 13 * * *"   # 08:30 America/Chicago (UTC-5/6 shifts). Adjust as needed.
+    - cron: "30 13 * * *"   # 08:30 America/Chicago when CST (UTC-6), 07:30 when CDT (UTC-5)
   workflow_dispatch: {}
+
+permissions:
+  contents: write   # needed to push updated jobs.db back to repo
+  actions: read
+
+concurrency:
+  group: daily-job-scout
+  cancel-in-progress: false
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # allows pushing back to the same branch
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
-      - env:
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Run bot
+        env:
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-          EMAIL_APP_PW: ${{ secrets.EMAIL_APP_PW }}  # Gmail App Password
+          EMAIL_APP_PW: ${{ secrets.EMAIL_APP_PW }}
         run: python bot.py
-      - name: Persist DB
-        uses: actions/upload-artifact@v4
-        with:
-          name: job-db
-          path: jobs.db
+
+      # Persist state across runs by committing jobs.db back to the repo
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit updated DB (if changed)
+        run: |
+          mkdir -p data
+          # move your DB into a tracked folder (adjust if your bot writes to a different path)
+          if [ -f jobs.db ]; then mv jobs.db data/jobs.db; fi
+          git add data/jobs.db || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update jobs.db [skip ci]"
+            git push
+          else
+            echo "No DB changes to commit."
+          fi
