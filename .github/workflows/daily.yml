@@ -1,0 +1,27 @@
+name: daily-job-scout
+
+on:
+  schedule:
+    - cron: "30 13 * * *"   # 08:30 America/Chicago (UTC-5/6 shifts). Adjust as needed.
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - env:
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_APP_PW: ${{ secrets.EMAIL_APP_PW }}  # Gmail App Password
+        run: python bot.py
+      - name: Persist DB
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-db
+          path: jobs.db
