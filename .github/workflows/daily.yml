@@ -47,7 +47,7 @@ jobs:
       - name: Commit updated DB (if changed)
         run: |
           mkdir -p data
-          # move your DB into a tracked folder (adjust if your bot writes to a different path)
+          # move the DB into a tracked folder (adjust if the bot writes to a different path)
           if [ -f jobs.db ]; then mv jobs.db data/jobs.db; fi
           git add data/jobs.db || true
           if ! git diff --cached --quiet; then
