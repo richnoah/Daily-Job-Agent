@@ -6,12 +6,13 @@ from bs4 import BeautifulSoup
 
 SERPAPI_KEY = os.environ["SERPAPI_KEY"]
 EMAIL_TO = os.environ["EMAIL_TO"]          # where to send the digest
-EMAIL_FROM = os.environ["EMAIL_FROM"]      # Gmail address you’ll send from
+EMAIL_FROM = os.environ["EMAIL_FROM"]      # Gmail address to send from
 EMAIL_APP_PW = os.environ.get("EMAIL_APP_PW")  # Gmail App Password (recommended)
 USE_SMTP = EMAIL_APP_PW is not None
 
 DB_PATH = "jobs.db"
 
+#update to include or exclue ATS platforms, job titles, locations, sectors.  Also to exclude certain job boards
 QUERY = (
     '(site:jobs.lever.co OR site:boards.greenhouse.io OR site:workable.com '
     'OR site:careers.icims.com OR site:wd1.myworkdayjobs.com OR site:recruitee.com) '
