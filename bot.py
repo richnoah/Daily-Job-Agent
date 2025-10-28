@@ -224,9 +224,14 @@ def run():
         time.sleep(2)
 
     # De-dupe by URL in this run
-    dedup = {it["url"]: it for it in all_items}
-    items = list(dedup.values())
-    print(f"[INFO] After dedupe: {len(items)}")
+    items = []
+    if all_items:
+        dedup = {it["url"]: it for it in all_items}
+        items = list(dedup.values())
+        print(f"[INFO] After dedupe: {len(items)}")
+    else:
+        print("[WARN] No search results returned from SerpAPI. Check your key or query.")
+        items = []
 
     # New vs seen
     new_items = filter_new(items)
