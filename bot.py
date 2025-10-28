@@ -5,33 +5,21 @@ from bs4 import BeautifulSoup
 
 # -------- Config & Secrets --------
 SERPAPI_KEY = os.environ.get("SERPAPI_KEY")
-EMAIL_TO = os.environ.get("EMAIL_TO")          # where to send the digest
-EMAIL_FROM = os.environ.get("EMAIL_FROM")      # Gmail address to send from
-EMAIL_APP_PW = os.environ.get("EMAIL_APP_PW")  # Gmail App Password (recommended)
+EMAIL_TO = os.environ.get("EMAIL_TO")
+EMAIL_FROM = os.environ.get("EMAIL_FROM")
+EMAIL_APP_PW = os.environ.get("EMAIL_APP_PW")
 USE_SMTP = EMAIL_APP_PW is not None
 
 DB_PATH = "jobs.db"
 
-# Validate early to avoid KeyError crashes
-REQUIRED = {"SERPAPI_KEY": SERPAPI_KEY, "EMAIL_TO": EMAIL_TO, "EMAIL_FROM": EMAIL_FROM}
-missing = [k for k, v in REQUIRED.items() if not v]
-if missing:
-    print(f"[WARN] Missing required secrets: {', '.join(missing)}")
-    print("       The job will run but only print results to logs.")
-    # continue; we allow running without email
-
-# -------- Google query (must be a single Python string) --------
+# -------- Google query (must be ONE Python string) --------
 QUERY = (
-    '(site:jobs.lever.co OR site:boards.greenhouse.io OR site:workable.com OR '
-    'site:careers.icims.com OR site:wd1.myworkdayjobs.com) '
+    '(site:jobs.lever.co OR site:boards.greenhouse.io OR site:workable.com OR site:careers.icims.com OR site:wd1.myworkdayjobs.com) '
     '("senior project manager" OR "program manager" OR "technical project manager") '
-    '("remote - us" OR "remote usa" OR "us-based" OR "us only" OR "united states" OR '
-    '"us remote" OR "remote in the united states" OR "eligible to work in the us" OR '
-    '"authorized to work in the us") '
+    '("remote - us" OR "remote usa" OR "us-based" OR "us only" OR "united states" OR "us remote" OR "remote in the united states" OR "eligible to work in the us" OR "authorized to work in the us") '
     '("software" OR "technology" OR "digital agency" OR "creative agency" OR "SaaS" OR "product") '
-    '-"emea" -"europe" -"uk" -"united kingdom" -"canada" -"australia" -"apac" -"latam" '
-    '-"mexico" -"global" -"worldwide" -"hybrid" -"on-site" -"onsite" -"partly remote" '
-    '-"2 days onsite" -"3 days onsite"'
+    '-"emea" -"europe" -"uk" -"united kingdom" -"canada" -"australia" -"apac" -"latam" -"mexico" -"global" -"worldwide" '
+    '-"hybrid" -"on-site" -"onsite" -"partly remote" -"2 days onsite" -"3 days onsite"'
 )
 
 # -------- US-only + fully-remote helper --------
@@ -55,16 +43,17 @@ NEG_NOT_FULLY_REMOTE = [
 ]
 
 def _text_ok(text: str) -> bool:
+    import re as _re
     t = " ".join(text.split()).lower()
-    if any(re.search(p, t) for p in NEG_NON_US): return False
-    if any(re.search(p, t) for p in NEG_NOT_FULLY_REMOTE): return False
-    return any(re.search(p, t) for p in POS_US_REMOTE)
+    if any(_re.search(p, t) for p in NEG_NON_US): return False
+    if any(_re.search(p, t) for p in NEG_NOT_FULLY_REMOTE): return False
+    return any(_re.search(p, t) for p in POS_US_REMOTE)
 
 def _jsonld_country_is_us(soup: BeautifulSoup) -> bool:
     try:
         for tag in soup.find_all("script", {"type": ["application/ld+json", "application/json"]}):
-            raw = tag.string or tag.text or ""
-            if not raw.strip():
+            raw = (tag.string or tag.text or "").strip()
+            if not raw:
                 continue
             try:
                 data = json.loads(raw)
@@ -85,7 +74,6 @@ def _jsonld_country_is_us(soup: BeautifulSoup) -> bool:
                     if country in ("us", "usa", "united states"):
                         return True
     except Exception:
-        # never let JSON-LD parsing kill the run
         return False
     return False
 
@@ -135,13 +123,13 @@ def google_search_serpapi(q, start=0):
         "q": q,
         "num": 100,
         "start": start,
-        "tbs": "qdr:d",  # past day
+        "tbs": "qdr:d",
         "hl": "en",
-        "api_key": SERPAPI_KEY or "",  # blank if missing; SerpAPI returns 401 but we won't crash
+        "api_key": SERPAPI_KEY or "",  # avoid KeyError
     }
     r = requests.get("https://serpapi.com/search.json", params=params, timeout=30)
     if r.status_code == 401:
-        print("[ERROR] SerpAPI 401 Unauthorized. Check SERPAPI_KEY in repo secrets.")
+        print("[ERROR] SerpAPI 401 Unauthorized. Check SERPAPI_KEY.")
         return {"organic_results": []}
     r.raise_for_status()
     return r.json()
@@ -199,7 +187,6 @@ def format_markdown(items):
     return "\n".join(lines)
 
 def send_email(subject, body_md):
-    # If email creds missing, just print
     if not (EMAIL_FROM and EMAIL_TO and USE_SMTP):
         print("[INFO] Email credentials missing; printing digest to logs instead.")
         print(subject)
@@ -218,8 +205,11 @@ def send_email(subject, body_md):
 def run():
     ensure_db()
 
-    # Fetch up to 200 results from the last day (two pages)
+    # Always initialize these so NameError cannot happen
     all_items = []
+    items = []
+
+    # Fetch up to 200 results from the last day (two pages)
     for start in (0, 100):
         data = google_search_serpapi(QUERY, start=start)
         batch = extract_results(data)
@@ -228,7 +218,6 @@ def run():
         time.sleep(2)
 
     # De-dupe by URL in this run
-    items = []
     if all_items:
         dedup = {it["url"]: it for it in all_items}
         items = list(dedup.values())
@@ -250,12 +239,11 @@ def run():
     checked = 0
     for it in new_items[:60]:
         checked += 1
-        ok = strict_us_remote(it["url"])
-        if ok:
+        if strict_us_remote(it["url"]):
             us_remote_items.append(it)
     print(f"[INFO] US-remote kept: {len(us_remote_items)} / {checked} checked")
 
-    # Persist only the items we’ll actually report
+    # Persist only what we’ll report
     save_seen(us_remote_items)
 
     subject = f"{len(us_remote_items)} new US-remote PM roles — {datetime.now().date().isoformat()}"
@@ -265,9 +253,8 @@ def run():
 if __name__ == "__main__":
     try:
         run()
-    except Exception as e:
+    except Exception:
         print("[FATAL] Unhandled exception:")
         traceback.print_exc()
-        # Don’t fail the GitHub Action while debugging; return success so the workflow doesn't block.
-        # Change to 'sys.exit(1)' later if you prefer hard failures.
+        # While iterating, avoid failing the workflow hard:
         sys.exit(0)
