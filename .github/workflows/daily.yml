@@ -33,25 +33,25 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
 
-        - name: Show repo tree
+      - name: Show repo tree
         run: |
           pwd
           git rev-parse --short HEAD
           git status
-          git ls-files | sed -n '1,200p'  # list tracked files
+          git ls-files | sed -n '1,200p'
 
       - name: Show bot.py with line numbers
         run: |
           echo "=== bot.py (first 240 lines) ==="
           nl -ba bot.py | sed -n '1,240p'
           echo "=== grep for 'for it in items' ==="
-          grep -n "for it in items" -n bot.py || true
+          grep -n "for it in items" bot.py || true
 
       - name: Search any stray 'for it in items' in repo
         run: |
           grep -RIn "for it in items" || true
-     
-        - name: Run bot
+
+      - name: Run bot
         env:
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
@@ -61,13 +61,13 @@ jobs:
 
       # Persist state across runs by committing jobs.db back to the repo
       - name: Configure git
-        if: always()   # commit DB even if the bot step soft-failed while debugging
+        if: ${{ always() }}   # commit DB even if the bot step soft-failed while debugging
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Commit updated DB (if changed)
-        if: always()
+        if: ${{ always() }}
         run: |
           mkdir -p data
           # move the DB into a tracked folder (adjust if your bot writes elsewhere)
@@ -80,9 +80,9 @@ jobs:
             echo "No DB changes to commit."
           fi
 
-      # Optional: always have a fallback artifact if pushing is blocked by branch protection
+      # Optional: artifact if pushing is blocked by branch protection
       - name: Upload DB artifact (fallback)
-        if: failure() || cancelled()
+        if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: jobs-db-fallback
