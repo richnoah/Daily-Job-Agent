@@ -1,18 +1,26 @@
-import os, sqlite3, time, re, json
-from datetime import datetime, timedelta, timezone
+import os, sqlite3, time, re, json, sys, traceback
+from datetime import datetime, timezone
 import requests
-from urllib.parse import urlencode
 from bs4 import BeautifulSoup
 
-SERPAPI_KEY = os.environ["SERPAPI_KEY"]
-EMAIL_TO = os.environ["EMAIL_TO"]          # where to send the digest
-EMAIL_FROM = os.environ["EMAIL_FROM"]      # Gmail address to send from
+# -------- Config & Secrets --------
+SERPAPI_KEY = os.environ.get("SERPAPI_KEY")
+EMAIL_TO = os.environ.get("EMAIL_TO")          # where to send the digest
+EMAIL_FROM = os.environ.get("EMAIL_FROM")      # Gmail address to send from
 EMAIL_APP_PW = os.environ.get("EMAIL_APP_PW")  # Gmail App Password (recommended)
 USE_SMTP = EMAIL_APP_PW is not None
 
 DB_PATH = "jobs.db"
 
-# Query: US-only, fully-remote leaning, tech/agency focus, ATS-scoped
+# Validate early to avoid KeyError crashes
+REQUIRED = {"SERPAPI_KEY": SERPAPI_KEY, "EMAIL_TO": EMAIL_TO, "EMAIL_FROM": EMAIL_FROM}
+missing = [k for k, v in REQUIRED.items() if not v]
+if missing:
+    print(f"[WARN] Missing required secrets: {', '.join(missing)}")
+    print("       The job will run but only print results to logs.")
+    # continue; we allow running without email
+
+# -------- Google query (must be a single Python string) --------
 QUERY = (
     '(site:jobs.lever.co OR site:boards.greenhouse.io OR site:workable.com OR site:careers.icims.com OR site:wd1.myworkdayjobs.com) '
     '("senior project manager" OR "program manager" OR "technical project manager") '
@@ -22,9 +30,7 @@ QUERY = (
     '-"hybrid" -"on-site" -"onsite" -"partly remote" -"2 days onsite" -"3 days onsite"'
 )
 
-# -----------------------------
-# US-only + Fully-remote filter
-# -----------------------------
+# -------- US-only + fully-remote helper --------
 POS_US_REMOTE = [
     r"\bremote\s*-\s*us\b",
     r"\bus[-\s]?based\b",
@@ -51,32 +57,41 @@ def _text_ok(text: str) -> bool:
     return any(re.search(p, t) for p in POS_US_REMOTE)
 
 def _jsonld_country_is_us(soup: BeautifulSoup) -> bool:
-    # Many ATS pages embed schema.org JobPosting; check addressCountry
-    for tag in soup.find_all("script", {"type": ["application/ld+json", "application/json"]}):
-        try:
-            data = json.loads(tag.string or "")
-        except Exception:
-            continue
-        objs = data if isinstance(data, list) else [data]
-        for obj in objs:
-            if not isinstance(obj, dict): 
+    try:
+        for tag in soup.find_all("script", {"type": ["application/ld+json", "application/json"]}):
+            raw = tag.string or tag.text or ""
+            if not raw.strip():
                 continue
-            if obj.get("@type") not in ("JobPosting",):
+            try:
+                data = json.loads(raw)
+            except Exception:
                 continue
-            locs = obj.get("jobLocation", [])
-            if not isinstance(locs, list):
-                locs = [locs]
-            for loc in locs:
-                addr = (loc or {}).get("address", {}) or {}
-                country = (addr.get("addressCountry") or "").strip().lower()
-                if country in ("us", "usa", "united states"):
-                    return True
+            objs = data if isinstance(data, list) else [data]
+            for obj in objs:
+                if not isinstance(obj, dict): 
+                    continue
+                if obj.get("@type") not in ("JobPosting",):
+                    continue
+                locs = obj.get("jobLocation", [])
+                if not isinstance(locs, list):
+                    locs = [locs]
+                for loc in locs:
+                    addr = (loc or {}).get("address", {}) or {}
+                    country = (addr.get("addressCountry") or "").strip().lower()
+                    if country in ("us", "usa", "united states"):
+                        return True
+    except Exception:
+        # never let JSON-LD parsing kill the run
+        return False
     return False
 
 def strict_us_remote(url: str, timeout: int = 15) -> bool:
-    """Return True only if the job page reads as US-only AND fully remote."""
     try:
-        r = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+        r = requests.get(
+            url,
+            timeout=timeout,
+            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Safari/537.36"},
+        )
         if r.status_code >= 400:
             return False
         html = r.text
@@ -86,20 +101,16 @@ def strict_us_remote(url: str, timeout: int = 15) -> bool:
     soup = BeautifulSoup(html, "html.parser")
     text = soup.get_text(" ", strip=True)
 
-    # JSON-LD + text rules
     if _jsonld_country_is_us(soup) and _text_ok(text):
         return True
 
-    # URL hints + text rules
     url_l = url.lower()
     if any(k in url_l for k in ["remote-us", "remote_usa", "united-states", "us-remote"]) and _text_ok(text):
         return True
 
-    # Fallback: text-only rules
     return _text_ok(text)
 
-# -----------------------------
-
+# -------- Core pipeline --------
 def ensure_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -115,17 +126,19 @@ def ensure_db():
     conn.close()
 
 def google_search_serpapi(q, start=0):
-    # tbs=qdr:d -> results from past day; hl=en; num up to 100
     params = {
         "engine": "google",
         "q": q,
         "num": 100,
         "start": start,
-        "tbs": "qdr:d",
+        "tbs": "qdr:d",  # past day
         "hl": "en",
-        "api_key": SERPAPI_KEY
+        "api_key": SERPAPI_KEY or "",  # blank if missing; SerpAPI returns 401 but we won't crash
     }
     r = requests.get("https://serpapi.com/search.json", params=params, timeout=30)
+    if r.status_code == 401:
+        print("[ERROR] SerpAPI 401 Unauthorized. Check SERPAPI_KEY in repo secrets.")
+        return {"organic_results": []}
     r.raise_for_status()
     return r.json()
 
@@ -139,16 +152,7 @@ def extract_results(payload):
             items.append({"url": link, "title": title, "source": source or ""})
     return items
 
-filtered = [] #filter to remove most non-us and hybrid roles
-for it in items:
-    if strict_us_remote(it["url"]):
-        filtered.append(it)
-
-# optional: log why others were dropped (count only)
-print(f"Filtered to US-only fully-remote: {len(filtered)} / {len(items)}")
-
 def is_job_post(url):
-    # Light heuristic to reduce non-job pages
     return any(
         part in url.lower()
         for part in ["jobs.lever.co", "boards.greenhouse.io", "workable.com", "careers.icims.com", "myworkdayjobs.com", "recruitee.com"]
@@ -191,8 +195,9 @@ def format_markdown(items):
     return "\n".join(lines)
 
 def send_email(subject, body_md):
-    if not USE_SMTP:
-        print("EMAIL_APP_PW not set; printing output instead:\n")
+    # If email creds missing, just print
+    if not (EMAIL_FROM and EMAIL_TO and USE_SMTP):
+        print("[INFO] Email credentials missing; printing digest to logs instead.")
         print(subject)
         print(body_md)
         return
@@ -206,33 +211,40 @@ def send_email(subject, body_md):
         s.login(EMAIL_FROM, EMAIL_APP_PW)
         s.sendmail(EMAIL_FROM, [EMAIL_TO], msg.as_string())
 
-def main():
+def run():
     ensure_db()
 
     # Fetch up to 200 results from the last day (two pages)
     all_items = []
     for start in (0, 100):
         data = google_search_serpapi(QUERY, start=start)
-        all_items.extend(extract_results(data))
+        batch = extract_results(data)
+        print(f"[INFO] SerpAPI batch {start}: {len(batch)} results")
+        all_items.extend(batch)
         time.sleep(2)
 
     # De-dupe by URL in this run
-    dedup = {}
-    for it in all_items:
-        dedup[it["url"]] = it
+    dedup = {it["url"]: it for it in all_items}
     items = list(dedup.values())
+    print(f"[INFO] After dedupe: {len(items)}")
 
     # New vs seen
     new_items = filter_new(items)
+    print(f"[INFO] New (unseen) items: {len(new_items)}")
 
-    # Optional: quick content sniff to exclude “Careers landing pages”
+    # Title sanity check
     new_items = [i for i in new_items if any(k in i["title"].lower() for k in ["project manager", "program manager"])]
+    print(f"[INFO] After title filter: {len(new_items)}")
 
-    # *** Strict US-remote filter (fetches each page; keep cap small if needed) ***
+    # Strict US-remote filter (cap to keep runtime reasonable)
     us_remote_items = []
-    for it in new_items[:50]:  # cap to reduce runtime; adjust as needed
-        if strict_us_remote(it["url"]):
+    checked = 0
+    for it in new_items[:60]:
+        checked += 1
+        ok = strict_us_remote(it["url"])
+        if ok:
             us_remote_items.append(it)
+    print(f"[INFO] US-remote kept: {len(us_remote_items)} / {checked} checked")
 
     # Persist only the items we’ll actually report
     save_seen(us_remote_items)
@@ -242,4 +254,11 @@ def main():
     send_email(subject, body)
 
 if __name__ == "__main__":
-    main()
+    try:
+        run()
+    except Exception as e:
+        print("[FATAL] Unhandled exception:")
+        traceback.print_exc()
+        # Don’t fail the GitHub Action while debugging; return success so the workflow doesn't block.
+        # Change to 'sys.exit(1)' later if you prefer hard failures.
+        sys.exit(0)
