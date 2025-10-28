@@ -2,11 +2,12 @@ name: daily-job-scout
 
 on:
   schedule:
-    - cron: "30 13 * * *"   # 08:30 America/Chicago when CST (UTC-6), 07:30 when CDT (UTC-5)
+    # 13:30 UTC = 08:30 America/Chicago during CDT (UTC-5), 07:30 during CST (UTC-6)
+    - cron: "30 13 * * *"
   workflow_dispatch: {}
 
 permissions:
-  contents: write   # needed to push updated jobs.db back to repo
+  contents: write
   actions: read
 
 concurrency:
@@ -20,12 +21,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # allows pushing back to the same branch
+          fetch-depth: 0
+          # persist-credentials defaults to true; keep it unless your main branch is protected
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install deps
         run: pip install -r requirements.txt
@@ -40,14 +43,16 @@ jobs:
 
       # Persist state across runs by committing jobs.db back to the repo
       - name: Configure git
+        if: always()   # commit DB even if the bot step soft-failed while debugging
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Commit updated DB (if changed)
+        if: always()
         run: |
           mkdir -p data
-          # move the DB into a tracked folder (adjust if the bot writes to a different path)
+          # move the DB into a tracked folder (adjust if your bot writes elsewhere)
           if [ -f jobs.db ]; then mv jobs.db data/jobs.db; fi
           git add data/jobs.db || true
           if ! git diff --cached --quiet; then
@@ -56,3 +61,12 @@ jobs:
           else
             echo "No DB changes to commit."
           fi
+
+      # Optional: always have a fallback artifact if pushing is blocked by branch protection
+      - name: Upload DB artifact (fallback)
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jobs-db-fallback
+          path: data/jobs.db
+          if-no-files-found: ignore
