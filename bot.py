@@ -22,12 +22,16 @@ if missing:
 
 # -------- Google query (must be a single Python string) --------
 QUERY = (
-    '(site:jobs.lever.co OR site:boards.greenhouse.io OR site:workable.com OR site:careers.icims.com OR site:wd1.myworkdayjobs.com) '
+    '(site:jobs.lever.co OR site:boards.greenhouse.io OR site:workable.com OR '
+    'site:careers.icims.com OR site:wd1.myworkdayjobs.com) '
     '("senior project manager" OR "program manager" OR "technical project manager") '
-    '("remote - us" OR "remote usa" OR "us-based" OR "us only" OR "united states" OR "us remote" OR "remote in the united states" OR "eligible to work in the us" OR "authorized to work in the us") '
+    '("remote - us" OR "remote usa" OR "us-based" OR "us only" OR "united states" OR '
+    '"us remote" OR "remote in the united states" OR "eligible to work in the us" OR '
+    '"authorized to work in the us") '
     '("software" OR "technology" OR "digital agency" OR "creative agency" OR "SaaS" OR "product") '
-    '-"emea" -"europe" -"uk" -"united kingdom" -"canada" -"australia" -"apac" -"latam" -"mexico" -"global" -"worldwide" '
-    '-"hybrid" -"on-site" -"onsite" -"partly remote" -"2 days onsite" -"3 days onsite"'
+    '-"emea" -"europe" -"uk" -"united kingdom" -"canada" -"australia" -"apac" -"latam" '
+    '-"mexico" -"global" -"worldwide" -"hybrid" -"on-site" -"onsite" -"partly remote" '
+    '-"2 days onsite" -"3 days onsite"'
 )
 
 # -------- US-only + fully-remote helper --------
