@@ -33,7 +33,25 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
 
-      - name: Run bot
+        - name: Show repo tree
+        run: |
+          pwd
+          git rev-parse --short HEAD
+          git status
+          git ls-files | sed -n '1,200p'  # list tracked files
+
+      - name: Show bot.py with line numbers
+        run: |
+          echo "=== bot.py (first 240 lines) ==="
+          nl -ba bot.py | sed -n '1,240p'
+          echo "=== grep for 'for it in items' ==="
+          grep -n "for it in items" -n bot.py || true
+
+      - name: Search any stray 'for it in items' in repo
+        run: |
+          grep -RIn "for it in items" || true
+     
+        - name: Run bot
         env:
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
