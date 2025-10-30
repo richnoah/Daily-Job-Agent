@@ -210,7 +210,7 @@ def run():
     items = []
 
     # Fetch up to 200 results from the last day (two pages)
-    for start in (0, 100):
+    for start in (0,):
         data = google_search_serpapi(QUERY, start=start)
         batch = extract_results(data)
         print(f"[INFO] SerpAPI batch {start}: {len(batch)} results")
@@ -243,12 +243,14 @@ def run():
             us_remote_items.append(it)
     print(f"[INFO] US-remote kept: {len(us_remote_items)} / {checked} checked")
 
-    # Persist only what we’ll report
+# Persist only what we’ll report
+if us_remote_items:
     save_seen(us_remote_items)
-
     subject = f"{len(us_remote_items)} new US-remote PM roles — {datetime.now().date().isoformat()}"
     body = format_markdown(us_remote_items)
     send_email(subject, body)
+else:
+    print("[INFO] No new US-remote jobs found this run; skipping email.")
 
 if __name__ == "__main__":
     try:
