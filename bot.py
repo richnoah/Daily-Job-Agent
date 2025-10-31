@@ -208,9 +208,10 @@ def run():
     # Always initialize these so NameError cannot happen
     all_items = []
     items = []
+    us_remote_items = []   # <-- initialize here to prevent NameError
 
     # Fetch up to 200 results from the last day (two pages)
-    for start in (0,):
+    for start in (0, 100):
         data = google_search_serpapi(QUERY, start=start)
         batch = extract_results(data)
         print(f"[INFO] SerpAPI batch {start}: {len(batch)} results")
@@ -226,31 +227,34 @@ def run():
         print("[WARN] No search results returned from SerpAPI. Check your key or query.")
         items = []
 
-    # New vs seen
+    # Identify new (unseen) jobs
     new_items = filter_new(items)
     print(f"[INFO] New (unseen) items: {len(new_items)}")
 
-    # Title sanity check
-    new_items = [i for i in new_items if any(k in i["title"].lower() for k in ["project manager", "program manager"])]
+    # Filter titles for relevance
+    new_items = [
+        i for i in new_items
+        if any(k in i["title"].lower() for k in ["project manager", "program manager"])
+    ]
     print(f"[INFO] After title filter: {len(new_items)}")
 
-    # Strict US-remote filter (cap to keep runtime reasonable)
-    us_remote_items = []
-    checked = 0
-    for it in new_items[:60]:
-        checked += 1
-        if strict_us_remote(it["url"]):
-            us_remote_items.append(it)
-    print(f"[INFO] US-remote kept: {len(us_remote_items)} / {checked} checked")
+    # Only proceed if there are unseen items
+    if new_items:
+        for it in new_items[:60]:  # cap to avoid long runs
+            if strict_us_remote(it["url"]):
+                us_remote_items.append(it)
+        print(f"[INFO] US-remote kept: {len(us_remote_items)} / {len(new_items)} checked")
+    else:
+        print("[INFO] No unseen jobs found in this run.")
 
-# Persist only what we’ll report
-if us_remote_items:
-    save_seen(us_remote_items)
-    subject = f"{len(us_remote_items)} new US-remote PM roles — {datetime.now().date().isoformat()}"
-    body = format_markdown(us_remote_items)
-    send_email(subject, body)
-else:
-    print("[INFO] No new US-remote jobs found this run; skipping email.")
+    # Persist and email only when there are new jobs
+    if us_remote_items:
+        save_seen(us_remote_items)
+        subject = f"{len(us_remote_items)} new US-remote PM roles — {datetime.now().date().isoformat()}"
+        body = format_markdown(us_remote_items)
+        send_email(subject, body)
+    else:
+        print("[INFO] No new US-remote jobs found; skipping email.")
 
 if __name__ == "__main__":
     try:
