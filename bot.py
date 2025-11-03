@@ -10,7 +10,7 @@ EMAIL_FROM = os.environ.get("EMAIL_FROM")
 EMAIL_APP_PW = os.environ.get("EMAIL_APP_PW")
 USE_SMTP = EMAIL_APP_PW is not None
 
-DB_PATH = "jobs.db"
+DB_PATH = "data/jobs.db"
 
 # -------- Google query (must be ONE Python string) --------
 QUERY = (
@@ -104,8 +104,26 @@ def strict_us_remote(url: str, timeout: int = 15) -> bool:
 
 # -------- Core pipeline --------
 def ensure_db():
+    # Make sure the folder exists
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
+    # (Optional) one-time migration if an old root-level DB exists
+    old_path = "jobs.db"
+    if os.path.exists(old_path) and not os.path.exists(DB_PATH):
+        try:
+            os.replace(old_path, DB_PATH)  # move old DB into data/
+            print("[INFO] Migrated existing jobs.db to data/jobs.db")
+        except Exception as e:
+            print(f"[WARN] Could not migrate old DB: {e}")
+
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+
+    # Light safety pragmas (fine for a tiny single-writer workflow)
+    cur.execute("PRAGMA journal_mode=WAL;")
+    cur.execute("PRAGMA synchronous=NORMAL;")
+
+    # Schema (idempotent)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS seen (
         url TEXT PRIMARY KEY,
@@ -114,6 +132,10 @@ def ensure_db():
         source TEXT
     )
     """)
+
+    # Helpful index if you later add more tables/joins
+    cur.execute("CREATE INDEX IF NOT EXISTS ix_seen_first_seen ON seen(first_seen_utc);")
+
     conn.commit()
     conn.close()
 
@@ -237,7 +259,7 @@ def run():
     # Strict US-remote filter (cap to keep runtime reasonable)
     us_remote_items = []
     checked = 0
-    for it in new_items[:60]:
+    for it in new_items[:100]:
         checked += 1
         if strict_us_remote(it["url"]):
             us_remote_items.append(it)

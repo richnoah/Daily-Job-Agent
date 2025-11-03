@@ -69,15 +69,11 @@ jobs:
       - name: Commit updated DB (if changed)
         if: ${{ always() }}
         run: |
-          mkdir -p data
-          # move the DB into a tracked folder (adjust if your bot writes elsewhere)
-          if [ -f jobs.db ]; then mv jobs.db data/jobs.db; fi
-          git add data/jobs.db || true
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: update jobs.db [skip ci]"
-            git push
-          else
-            echo "No DB changes to commit."
+            git add data/jobs.db || true
+            if ! git diff --cached --quiet; then
+             git commit -m "chore: update jobs.db [skip ci]"
+             git push
+          else echo "No DB changes to commit."
           fi
 
       # Optional: artifact if pushing is blocked by branch protection
