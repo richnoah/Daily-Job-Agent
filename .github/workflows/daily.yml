@@ -70,11 +70,12 @@ jobs:
       - name: Commit updated DB (if changed)
         if: ${{ always() }}
         run: |
-            git add data/jobs.db || true
-            if ! git diff --cached --quiet; then
-             git commit -m "chore: update jobs.db [skip ci]"
-             git push
-          else echo "No DB changes to commit."
+          git add data/jobs.db || true
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update jobs.db [skip ci]"
+            git push
+          else
+            echo "No DB changes to commit."
           fi
 
       # Optional: artifact if pushing is blocked by branch protection
