@@ -16,6 +16,9 @@ The bot runs as a **GitHub Actions workflow**, so no servers or manual execution
 - Executes **hourly via GitHub Actions** with concurrency control to prevent overlap.  
 - Persists state between runs by committing the database back to the repository.
 
+## Note
+- The free version of SERPAPI has rate limits that will impact how often your job can run.
+
 ---
 
 ## Repository Structure
